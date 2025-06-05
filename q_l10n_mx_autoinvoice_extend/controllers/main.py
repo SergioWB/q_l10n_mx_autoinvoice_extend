@@ -34,8 +34,7 @@ class AutoinvoiceExtended(Autoinvoice): # Heredo de la clase Autoinvoice origina
 
         if order_date.year < today.year:
             if days_diff > 180 or today.month > 3:
-                return {'error': _(
-                    'La orden es del año anterior y ha excedido el límite de tiempo para refacturación (180 días o después de marzo).')}
+                return {'error': _('La orden es del año anterior. Solo puede refacturarse si tiene menos de 180 días y si estamos antes del 31 de marzo del año actual.')}
         elif days_diff > 180:
             return {'error': _('La orden excede los 180 días permitidos para refacturación.')}
 
