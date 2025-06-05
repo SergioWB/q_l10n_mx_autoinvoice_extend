@@ -7,7 +7,7 @@ from odoo.fields import Datetime
 class SaleOrder(models.Model):
     _inherit = 'sale.order'
 
-    # CON UNA NOTA DE CREDITO DESDE CERO (NO SE ASOCIA A LA ORDEN)
+    # CON UNA NOTA DE CREDITO DESDE CERO
     def _reprocess_from_global_invoice(self, global_invoice):
         self.ensure_one()
         print(f"Iniciando reprocesamiento de orden {self.name}")
@@ -86,7 +86,7 @@ class SaleOrder(models.Model):
         # Confirmar
         refund.action_post()
 
-        #Timbrar
+        # Timbrar
         refund.button_process_edi_web_services()
 
         # Agregar mensaje
