@@ -83,13 +83,16 @@ class AutoinvoiceExtended(Autoinvoice): # Heredo de la clase Autoinvoice origina
         # -----------------------------------------------------------------------
         if nc_autoinvoice and not factura_final:
             # Se permite continuar, fue una refactura anterior inconclusa
-            pass
+            rinv_incomplete = True
+
         elif order.invoice_ids.filtered(lambda inv: inv.move_type == 'out_refund' and inv.state == 'posted'):
             return {'error': _('Ya existe una nota de crédito asociada a esta orden.')}
+        else:
+            rinv_incomplete = False
 
         # -----------------------------------------------------------------------
         # Crear la nota de crédito si existe la global
-        if global_invoice:
+        if global_invoice and not rinv_incomplete:
             order._reprocess_from_global_invoice(global_invoice[0])
 
         # -----------------------------------------------------------------------
