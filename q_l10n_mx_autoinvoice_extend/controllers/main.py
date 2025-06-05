@@ -6,187 +6,6 @@ from datetime import date, timedelta
 class AutoinvoiceExtended(Autoinvoice): # Heredo de la clase Autoinvoice original
 
     @http.route('/q_l10n_mx_autoinvoice/order', type='json', auth='public', website=True, csrf=False)
-    def autoinvoice_order_backup(self, number_order=False, amount_total=0):
-        order = request.env['sale.order'].sudo().search([('name', '=', number_order)], limit=1)
-
-        if order and order.invoice_ids:
-            global_invoice = order.invoice_ids.filtered(
-                lambda inv: inv.partner_id.vat == 'XAXX010101000' and inv.partner_id.name == 'PÚBLICO EN GENERAL'
-            )
-            if global_invoice:
-                return order._reprocess_from_global_invoice(global_invoice)
-
-        # De lo contrario, flujo original
-        return super().autoinvoice_order(number_order=number_order, amount_total=amount_total)
-
-    @http.route('/q_l10n_mx_autoinvoice/order', type='json', auth='public', website=True, csrf=False)
-    def autoinvoice_order_backup_2(self, number_order=False, amount_total=0):
-        user_root = request.env.ref('base.user_root')
-        res_config_settings = request.env['res.config.settings'].sudo().with_user(user_root).get_values()
-
-        order = request.env['sale.order'].sudo().with_user(user_root).search([
-            ('name', '=', number_order),
-            ('company_id', '=', request.env.user.company_id.id)
-        ])
-
-        if not order and res_config_settings['autoinvoice_mercadolibre']:
-            order = request.env['sale.order'].sudo().with_user(user_root).search([
-                '|',
-                ('name', '=', "ML {0}".format(number_order)),
-                ('meli_order_id', '=', number_order),
-                ('company_id', '=', request.env.user.company_id.id)
-            ])
-
-        if not order:
-            return {'error': _('No se encontró la orden de venta.')}
-
-        difference = abs(float(order.amount_total) - float(amount_total))
-        if difference > float(res_config_settings['autoinvoice_tolerance']):
-            return {'error': _('Not exist order with these records.')}
-
-        if order.state not in ('sale', 'done'):
-            return {'error': _('The order is not confirmed.')}
-
-        if order.invoice_ids:
-            # Validar si ya fue refacturada a cliente final
-            non_global_invoice = order.invoice_ids.filtered(
-                lambda
-                    inv: inv.partner_id.vat != 'XAXX010101000' and inv.move_type == 'out_invoice' and inv.state == 'posted'
-            )
-            if non_global_invoice:
-                return {
-                    'error': _(f'La orden ya ha sido facturada a un cliente específico. RFC: {non_global_invoice[0].partner_id.vat}.')
-                }
-
-            # Despues, si aun no fue refacturada a cliuente final, ver si esta en una factura global
-            global_invoice = order.invoice_ids.filtered(
-                lambda inv: inv.partner_id.vat == 'XAXX010101000' and (inv.partner_id.name == 'PÚBLICO EN GENERAL')
-                            and inv.move_type == 'out_invoice' and inv.state == 'posted'
-            )
-
-            # -----------------------------------------------------------------
-            # Verificar si ya existe una NC con origen esta orden
-            existing_refund = self.env['account.move'].search([
-                ('move_type', '=', 'out_refund'),
-                ('invoice_origin', 'ilike', self.name),
-                ('state', '=', 'posted'),
-                ('reversed_entry_id', '=', global_invoice.id)
-            ])
-
-            if existing_refund:
-                return {
-                    'error': _("Ya se generó una nota de crédito para esta orden.")
-                }
-
-            # -----------------------------------------------------------------
-
-            if global_invoice:
-                # Primero se crea la nota de credito
-                order._reprocess_from_global_invoice(global_invoice[0])
-
-                # Desde la SO, se crea la factura
-                new_invoice = order._create_invoices()
-                new_invoice.write({'ref': f"Factura cliente por refacturación de {order.name}"})
-
-                # Paso 3: Continuar flujo normal mostrando el formulario
-                template = request.env['ir.ui.view']._render_template('q_l10n_mx_autoinvoice.address', {
-                    'country_id': request.env.ref('base.mx'),
-                })
-                return {
-                    'order_id': order.id,
-                    'invoice_id': new_invoice.id,
-                    'template': template,
-                }
-
-                # ****************************************************************
-
-
-        elif order.invoice_ids and order.invoice_ids[0].l10n_mx_edi_cfdi_uuid:
-            print("_render_template('q_l10n_mx_autoinvoice.download'")
-            return {
-                'template': request.env['ir.ui.view']._render_template('q_l10n_mx_autoinvoice.download', {
-                    'invoice_id': order.invoice_ids[0].id,
-                })
-            }
-
-        else:
-            template = request.env['ir.ui.view']._render_template('q_l10n_mx_autoinvoice.address', {
-                'country_id': request.env.ref('base.mx'),
-            })
-            print("_render_template('q_l10n_mx_autoinvoice.address'")
-            return {
-                'order_id': order.id,
-                'template': template,
-            }
-
-    @http.route('/q_l10n_mx_autoinvoice/order', type='json', auth='public', website=True, csrf=False)
-    def autoinvoice_order_backup_3(self, number_order=False, amount_total=0):
-        user_root = request.env.ref('base.user_root')
-        res_config_settings = request.env['res.config.settings'].sudo().with_user(user_root).get_values()
-
-        order = request.env['sale.order'].sudo().with_user(user_root).search([
-            ('name', '=', number_order),
-            ('company_id', '=', request.env.user.company_id.id)
-        ])
-
-        if not order and res_config_settings['autoinvoice_mercadolibre']:
-            order = request.env['sale.order'].sudo().with_user(user_root).search([
-                '|',
-                ('name', '=', f"ML {number_order}"),
-                ('meli_order_id', '=', number_order),
-                ('company_id', '=', request.env.user.company_id.id)
-            ])
-
-        if not order:
-            return {'error': _('No se encontró la orden de venta.')}
-
-        if abs(float(order.amount_total) - float(amount_total)) > float(res_config_settings['autoinvoice_tolerance']):
-            return {'error': _('Not exist order with these records.')}
-
-        if order.state not in ('sale', 'done'):
-            return {'error': _('The order is not confirmed.')}
-
-        # Validación que ya está facturada a cliente final
-        non_global_invoice = order.invoice_ids.filtered(
-            lambda inv: inv.partner_id.vat != 'XAXX010101000' and inv.move_type == 'out_invoice' and inv.state == 'posted'
-        )
-        if non_global_invoice:
-            return {
-                'error': _(f'La orden ya fue facturada a cliente final. RFC: {non_global_invoice[0].partner_id.vat}.')
-            }
-
-        # Verificar factura global
-        global_invoice = order.invoice_ids.filtered(
-            lambda inv: inv.partner_id.vat == 'XAXX010101000' and
-                        inv.partner_id.name.lower() == 'público en general' and
-                        inv.move_type == 'out_invoice' and inv.state == 'posted'
-        )
-
-        # Verificar si ya tiene nota de crédito
-        if global_invoice:
-            existing_refund = request.env['account.move'].sudo().search([
-                ('move_type', '=', 'out_refund'),
-                ('invoice_origin', 'ilike', order.name),
-                ('state', '=', 'posted'),
-                ('reversed_entry_id', 'in', global_invoice.ids)
-            ])
-            if existing_refund:
-                return {'error': _("Ya se generó una nota de crédito para esta orden.")}
-
-            # Creamos la nota de crédito
-            order._reprocess_from_global_invoice(global_invoice[0])
-
-        # Mostramos el formulario para que el cliente capture su dirección
-        template = request.env['ir.ui.view']._render_template('q_l10n_mx_autoinvoice.address', {
-            'country_id': request.env.ref('base.mx'),
-        })
-
-        return {
-            'order_id': order.id,
-            'template': template,
-        }
-
-    @http.route('/q_l10n_mx_autoinvoice/order', type='json', auth='public', website=True, csrf=False)
     def autoinvoice_order(self, number_order=False, amount_total=0):
         user_root = request.env.ref('base.user_root')
         res_config_settings = request.env['res.config.settings'].sudo().with_user(user_root).get_values()
@@ -196,7 +15,7 @@ class AutoinvoiceExtended(Autoinvoice): # Heredo de la clase Autoinvoice origina
             ('company_id', '=', request.env.user.company_id.id)
         ])
 
-        if not order and res_config_settings['autoinvoice_mercadolibre']:
+        if not order and res_config_settings.get('autoinvoice_mercadolibre'):
             order = request.env['sale.order'].sudo().with_user(user_root).search([
                 '|',
                 ('name', '=', f"ML {number_order}"),
@@ -207,75 +26,73 @@ class AutoinvoiceExtended(Autoinvoice): # Heredo de la clase Autoinvoice origina
         if not order:
             return {'error': _('No se encontró la orden de venta.')}
 
-        # ----------------------------------------------------------------------------------
-        # Verificación de fechas
+        # -----------------------------------------------------------------------
+        # Validación por fechas
         today = date.today()
         order_date = order.date_order.date()
         days_diff = (today - order_date).days
 
-        # Orden del año anterior
         if order_date.year < today.year:
             if days_diff > 180 or today.month > 3:
                 return {'error': _(
                     'La orden es del año anterior y ha excedido el límite de tiempo para refacturación (180 días o después de marzo).')}
-        # Orden del mismo año
         elif days_diff > 180:
             return {'error': _('La orden excede los 180 días permitidos para refacturación.')}
 
-        # ----------------------------------------------------------------------------------
-        # Validación del total
+        # -----------------------------------------------------------------------
+        # Validar monto
         if abs(float(order.amount_total) - float(amount_total)) > float(res_config_settings['autoinvoice_tolerance']):
             return {'error': _('Not exist order with these records.')}
 
         if order.state not in ('sale', 'done'):
             return {'error': _('The order is not confirmed.')}
 
-        # ----------------------------------------------------------------------------------
-        # Validación: ya fue facturada a cliente final
-        non_global_invoice = order.invoice_ids.filtered(
-            lambda
-                inv: inv.partner_id.vat != 'XAXX010101000' and inv.move_type == 'out_invoice' and inv.state == 'posted'
+        # -----------------------------------------------------------------------
+        # Ya facturada a cliente final
+        already_factured = order.invoice_ids.filtered(
+            lambda inv: inv.move_type == 'out_invoice' and
+                        inv.partner_id.vat != 'XAXX010101000' and
+                        inv.state == 'posted'
         )
-        if non_global_invoice:
+        if already_factured:
             return {
-                'error': _(f'La orden ya fue facturada a cliente final. RFC: {non_global_invoice[0].partner_id.vat}.')
-            }
+                'error': _(f"La orden ya fue facturada a cliente final. RFC: {already_factured[0].partner_id.vat}.")}
 
-        # ----------------------------------------------------------------------------------
-        # Buscar si hay factura global
+        # -----------------------------------------------------------------------
+        # Factura global
         global_invoice = order.invoice_ids.filtered(
-            lambda inv: inv.partner_id.vat == 'XAXX010101000'
-                        and inv.partner_id.name.lower() == 'público en general'
-                        and inv.move_type == 'out_invoice'
-                        and inv.state == 'posted'
+            lambda inv: inv.move_type == 'out_invoice' and
+                        inv.partner_id.vat == 'XAXX010101000' and
+                        inv.state == 'posted'
         )
 
-        # ----------------------------------------------------------------------------------
-        # Buscar NC existente con from_autoinvoice
-        existing_nc = order.invoice_ids.filtered(
-            lambda inv: inv.move_type == 'out_refund' and inv.state == 'posted' and inv.from_autoinvoice
+        # NC creada desde el autofacturador
+        nc_autoinvoice = order.invoice_ids.filtered(
+            lambda inv: inv.move_type == 'out_refund' and
+                        inv.from_autoinvoice and
+                        inv.state == 'posted'
         )
 
-        # ----------------------------------------------------------------------------------
-        # Verificar si existe nueva factura al cliente (no público en general)
-        factura_nueva = order.invoice_ids.filtered(
-            lambda inv: inv.move_type == 'out_invoice'
-                        and inv.partner_id.vat != 'XAXX010101000'
-                        and inv.state == 'posted'
+        # Verificar si existe factura final después de una NC
+        factura_final = order.invoice_ids.filtered(
+            lambda inv: inv.move_type == 'out_invoice' and
+                        inv.partner_id.vat != 'XAXX010101000' and
+                        inv.state == 'posted'
         )
 
-        if existing_nc and not factura_nueva:
-            # Caso especial: ya hay NC pero no factura final, continuar el flujo
+        # -----------------------------------------------------------------------
+        if nc_autoinvoice and not factura_final:
+            # Se permite continuar, fue una refactura anterior inconclusa
             pass
-        elif existing_nc:
+        elif order.invoice_ids.filtered(lambda inv: inv.move_type == 'out_refund' and inv.state == 'posted'):
             return {'error': _('Ya existe una nota de crédito asociada a esta orden.')}
 
-        # ----------------------------------------------------------------------------------
-        # Crear NC si hay factura global
+        # -----------------------------------------------------------------------
+        # Crear la nota de crédito si existe la global
         if global_invoice:
             order._reprocess_from_global_invoice(global_invoice[0])
 
-        # ----------------------------------------------------------------------------------
+        # -----------------------------------------------------------------------
         # Mostrar formulario de dirección
         template = request.env['ir.ui.view']._render_template('q_l10n_mx_autoinvoice.address', {
             'country_id': request.env.ref('base.mx'),
@@ -285,7 +102,6 @@ class AutoinvoiceExtended(Autoinvoice): # Heredo de la clase Autoinvoice origina
             'order_id': order.id,
             'template': template,
         }
-        # ----------------------------------------------------------------------------------
 
     @http.route('/q_l10n_mx_autoinvoice/select_address', type='json', auth='public', website=True, csrf=False)
     def autoinvoice_select_address(self, order_id, partner_id):
