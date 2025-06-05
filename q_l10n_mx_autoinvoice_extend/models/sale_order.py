@@ -35,7 +35,7 @@ class SaleOrder(models.Model):
         refund_vals = {
             'move_type': 'out_refund',
             'invoice_origin': f"Nota de crédito por refacturación de {self.name}",
-            'ref': f"NC parcial para: {self.name}",
+            'ref': f"NC para: {self.name}",
             'partner_id': global_invoice.partner_id.id,
             'journal_id': global_invoice.journal_id.id,
             'invoice_date': fields.Date.today(),
